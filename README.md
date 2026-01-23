@@ -41,6 +41,18 @@ Quickstart does all of this with a single command. Configure once, launch instan
 
 ---
 
+## Tested Configuration
+
+This code has been tested and verified working on the following setup:
+
+- **Laptop** (Primary, 1536x960): 1 maximized window
+- **External Monitor** (1920x1080): 2 windows side-by-side
+- **TV** (1920x1080): 4 windows in 2x2 grid
+
+Command: `quickstart -ProjectsDir "C:\dev" -Windows "1,2,4"`
+
+---
+
 ## Quick Start (PowerShell - No Install Required)
 
 ### 1. Run the interactive setup:
