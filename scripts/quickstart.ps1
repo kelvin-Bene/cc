@@ -287,6 +287,8 @@ if ($Init) {
     Write-Host "  Where are your project folders located?"
     Write-Host "  (This is the folder containing all your project subfolders)"
     Write-Host ""
+    Write-Host "  Example: C:\dev" -ForegroundColor Gray
+    Write-Host ""
     $inputDir = Read-Host "  Projects directory"
 
     # Check for null or empty
