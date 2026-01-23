@@ -20,13 +20,13 @@ $Config = @{
     # Command to run after selecting a project
     PostCommand = $PostCommand
 
-    # Monitor configuration
+    # Monitor configuration (sorted left to right by screen position)
     # Format: @{ MonitorIndex = @{ Windows = N; Layout = "grid"|"vertical"|"horizontal" } }
+    # Your setup: Laptop (left) | Monitor (middle) | TV (right)
     Monitors = @{
-        0 = @{ Windows = 2; Layout = "vertical" }   # First monitor: 2 windows side by side
-        1 = @{ Windows = 1; Layout = "full" }       # Second monitor: 1 fullscreen
-        # Add more monitors as needed:
-        # 2 = @{ Windows = 4; Layout = "grid" }     # Third monitor: 4 windows in grid
+        0 = @{ Windows = 1; Layout = "full" }       # Laptop: 1 fullscreen window
+        1 = @{ Windows = 2; Layout = "vertical" }   # Monitor: 2 windows side by side
+        2 = @{ Windows = 4; Layout = "grid" }       # TV: 4 windows in 2x2 grid
     }
 }
 
