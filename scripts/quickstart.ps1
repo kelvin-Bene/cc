@@ -242,6 +242,29 @@ function Get-WindowPositions {
     return $positions
 }
 
+function Get-PickerScript {
+    param([string]$WorkingDir, [string]$PostCommand)
+
+    return @"
+Set-Location '$WorkingDir'
+`$projects = Get-ChildItem -Directory | Select-Object -ExpandProperty Name
+`$fzfPath = Get-Command fzf -ErrorAction SilentlyContinue
+if (`$fzfPath) {
+    `$selected = `$projects | fzf --height=80% --reverse --border --prompt='Select project: '
+} else {
+    Write-Host ''; Write-Host '  Select a Project' -ForegroundColor Cyan; Write-Host ''
+    for (`$i = 0; `$i -lt `$projects.Count; `$i++) { Write-Host "    [`$(`$i + 1)] `$(`$projects[`$i])" }
+    Write-Host ''; `$sel = Read-Host '  Enter number'; `$idx = [int]`$sel - 1
+    if (`$idx -ge 0 -and `$idx -lt `$projects.Count) { `$selected = `$projects[`$idx] }
+}
+if (`$selected) {
+    Set-Location (Join-Path '$WorkingDir' `$selected)
+    Write-Host "  Opening: `$selected" -ForegroundColor Green
+    $PostCommand
+} else { Write-Host '  No project selected.' -ForegroundColor Red }
+"@
+}
+
 function Start-QuickstartTerminal {
     param(
         [string]$Title,
@@ -250,59 +273,7 @@ function Start-QuickstartTerminal {
         [string]$PostCommand
     )
 
-    # Create the picker command that will run in the terminal
-    $pickerScript = @"
-
-# Change to projects directory
-Set-Location '$WorkingDir'
-
-# Get list of project directories
-`$projects = Get-ChildItem -Directory | Select-Object -ExpandProperty Name
-
-# Check if fzf is available
-`$fzfPath = Get-Command fzf -ErrorAction SilentlyContinue
-
-if (`$fzfPath) {
-    # Use fzf for selection
-    `$selected = `$projects | fzf --height=80% --reverse --border --prompt='Select project: '
-} else {
-    # Fallback to simple numbered menu
-    Write-Host ''
-    Write-Host '  Quickstart - Select a Project' -ForegroundColor Cyan
-    Write-Host '  =============================' -ForegroundColor Cyan
-    Write-Host ''
-
-    for (`$i = 0; `$i -lt `$projects.Count; `$i++) {
-        Write-Host "    [`$(`$i + 1)] `$(`$projects[`$i])"
-    }
-
-    Write-Host ''
-    `$selection = Read-Host '  Enter number'
-
-    `$index = [int]`$selection - 1
-    if (`$index -ge 0 -and `$index -lt `$projects.Count) {
-        `$selected = `$projects[`$index]
-    }
-}
-
-if (`$selected) {
-    `$projectPath = Join-Path '$WorkingDir' `$selected
-    Set-Location `$projectPath
-
-    Write-Host ''
-    Write-Host "  Opening: `$selected" -ForegroundColor Green
-    Write-Host ''
-
-    # Run the post-select command
-    $PostCommand
-} else {
-    Write-Host '  No project selected.' -ForegroundColor Red
-    Write-Host '  Press any key to exit...'
-    `$null = `$Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
-}
-"@
-
-    # Encode the script for passing to PowerShell
+    $pickerScript = Get-PickerScript -WorkingDir $WorkingDir -PostCommand $PostCommand
     $bytes = [System.Text.Encoding]::Unicode.GetBytes($pickerScript)
     $encodedCommand = [Convert]::ToBase64String($bytes)
 
@@ -315,37 +286,71 @@ if (`$selected) {
 
     Start-Process "wt" -ArgumentList $wtArgs
 
-    # Wait for window to appear
-    Start-Sleep -Milliseconds 800
+    # Wait for window to fully initialize
+    Start-Sleep -Milliseconds 1000
 
     # Find and position the window
-    $maxAttempts = 10
     $hwnd = [IntPtr]::Zero
-
-    for ($attempt = 0; $attempt -lt $maxAttempts; $attempt++) {
+    for ($attempt = 0; $attempt -lt 15; $attempt++) {
         $hwnd = [WinAPI]::FindWindowByTitle($Title)
-        if ($hwnd -ne [IntPtr]::Zero) {
-            break
-        }
-        Start-Sleep -Milliseconds 300
+        if ($hwnd -ne [IntPtr]::Zero) { break }
+        Start-Sleep -Milliseconds 200
     }
 
     if ($hwnd -ne [IntPtr]::Zero) {
-        $result = [WinAPI]::SetWindowPos(
-            $hwnd,
-            [IntPtr]::Zero,
-            $Position.X,
-            $Position.Y,
-            $Position.Width,
-            $Position.Height,
-            [WinAPI]::SWP_NOZORDER -bor [WinAPI]::SWP_SHOWWINDOW
-        )
+        # Windows 10/11 invisible borders: ~7px on left, right, bottom
+        $border = 7
+
+        $x = $Position.X - $border
+        $y = $Position.Y
+        $w = $Position.Width + ($border * 2)
+        $h = $Position.Height + $border
+
+        # Call SetWindowPos multiple times to ensure it takes effect
+        for ($i = 0; $i -lt 3; $i++) {
+            [WinAPI]::SetWindowPos($hwnd, [IntPtr]::Zero, $x, $y, $w, $h,
+                [WinAPI]::SWP_NOZORDER -bor [WinAPI]::SWP_SHOWWINDOW) | Out-Null
+            Start-Sleep -Milliseconds 100
+        }
 
         if ($Verbose) {
-            Write-Host "  Positioned '$Title' at ($($Position.X), $($Position.Y)) - $($Position.Width)x$($Position.Height)"
+            Write-Host "  Positioned '$Title' at ($x, $y) ${w}x${h}"
         }
     } else {
-        Write-Host "  Warning: Could not find window '$Title' to position" -ForegroundColor Yellow
+        Write-Host "  Warning: Could not find window '$Title'" -ForegroundColor Yellow
+    }
+}
+
+# Launch a single fullscreen terminal on a monitor
+function Start-FullscreenTerminal {
+    param(
+        [string]$Title,
+        [string]$WorkingDir,
+        [MonitorInfo]$Monitor,
+        [string]$PostCommand
+    )
+
+    $pickerScript = Get-PickerScript -WorkingDir $WorkingDir -PostCommand $PostCommand
+    $bytes = [System.Text.Encoding]::Unicode.GetBytes($pickerScript)
+    $encodedCommand = [Convert]::ToBase64String($bytes)
+
+    # Use --pos to target the monitor, then maximize
+    $centerX = $Monitor.X + [math]::Floor($Monitor.Width / 2)
+    $centerY = $Monitor.Y + [math]::Floor($Monitor.Height / 2)
+
+    $wtArgs = @(
+        "--pos", "$centerX,$centerY",
+        "-M",  # Maximized
+        "--title", $Title,
+        "-d", $WorkingDir,
+        "powershell", "-NoExit", "-EncodedCommand", $encodedCommand
+    )
+
+    Start-Process "wt" -ArgumentList $wtArgs
+    Start-Sleep -Milliseconds 500
+
+    if ($Verbose) {
+        Write-Host "  Launched '$Title' maximized on monitor at ($($Monitor.X), $($Monitor.Y))"
     }
 }
 
@@ -447,22 +452,39 @@ foreach ($monitorIndex in $Config.Monitors.Keys | Sort-Object) {
     }
 
     $monitor = $monitors[$monitorIndex]
-    $positions = Get-WindowPositions -Monitor $monitor -WindowCount $monitorConfig.Windows -Layout $monitorConfig.Layout
 
-    Write-Host "  Monitor $($monitorIndex + 1): Launching $($monitorConfig.Windows) window(s) in $($monitorConfig.Layout) layout" -ForegroundColor Green
-
-    foreach ($pos in $positions) {
+    # For single window, use maximized mode (fills screen perfectly)
+    if ($monitorConfig.Windows -eq 1) {
         $windowIndex++
         $title = "Quickstart-$windowIndex"
 
-        Start-QuickstartTerminal `
+        Write-Host "  Monitor $($monitorIndex + 1): Launching 1 maximized window" -ForegroundColor Green
+
+        Start-FullscreenTerminal `
             -Title $title `
             -WorkingDir $Config.ProjectsDir `
-            -Position $pos `
+            -Monitor $monitor `
             -PostCommand $Config.PostCommand
+    }
+    else {
+        # For multiple windows, calculate positions and tile them
+        $positions = Get-WindowPositions -Monitor $monitor -WindowCount $monitorConfig.Windows -Layout $monitorConfig.Layout
 
-        # Small delay between launches to avoid race conditions
-        Start-Sleep -Milliseconds 200
+        Write-Host "  Monitor $($monitorIndex + 1): Launching $($monitorConfig.Windows) window(s) in $($monitorConfig.Layout) layout" -ForegroundColor Green
+
+        foreach ($pos in $positions) {
+            $windowIndex++
+            $title = "Quickstart-$windowIndex"
+
+            Start-QuickstartTerminal `
+                -Title $title `
+                -WorkingDir $Config.ProjectsDir `
+                -Position $pos `
+                -PostCommand $Config.PostCommand
+
+            # Small delay between launches
+            Start-Sleep -Milliseconds 300
+        }
     }
 }
 
