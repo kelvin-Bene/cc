@@ -289,17 +289,21 @@ if ($Init) {
     Write-Host ""
     $inputDir = Read-Host "  Projects directory"
 
-    if ($inputDir -eq "") {
+    # Check for null or empty
+    if ([string]::IsNullOrWhiteSpace($inputDir)) {
         Write-Host "  Error: Projects directory is required" -ForegroundColor Red
         exit 1
     }
 
-    if (-not (Test-Path $inputDir)) {
+    if (-not (Test-Path -Path $inputDir -ErrorAction SilentlyContinue)) {
         Write-Host "  Directory doesn't exist. Create it? [Y/n]" -ForegroundColor Yellow
         $create = Read-Host
-        if ($create -eq "" -or $create.ToLower() -eq "y") {
+        if ([string]::IsNullOrWhiteSpace($create) -or $create -eq "y" -or $create -eq "Y") {
             New-Item -ItemType Directory -Path $inputDir -Force | Out-Null
             Write-Host "  Created: $inputDir" -ForegroundColor Green
+        } else {
+            Write-Host "  Error: Projects directory must exist" -ForegroundColor Red
+            exit 1
         }
     }
 
@@ -309,7 +313,7 @@ if ($Init) {
     for ($i = 0; $i -lt $monitors.Count; $i++) {
         $m = $monitors[$i]
         $input = Read-Host "    Monitor $($i + 1) ($($m.Width)x$($m.Height)) [1]"
-        if ($input -eq "") { $input = "1" }
+        if ([string]::IsNullOrWhiteSpace($input)) { $input = "1" }
         $windowConfig += $input
     }
 
@@ -321,7 +325,7 @@ if ($Init) {
     Write-Host ""
 
     $launch = Read-Host "  Launch now? [Y/n]"
-    if ($launch -eq "" -or $launch.ToLower() -eq "y") {
+    if ([string]::IsNullOrWhiteSpace($launch) -or $launch -eq "y" -or $launch -eq "Y") {
         $Config.ProjectsDir = $inputDir
         $Config.Monitors = @{}
         for ($i = 0; $i -lt $windowConfig.Count; $i++) {
@@ -335,17 +339,27 @@ if ($Init) {
 }
 
 # Validate projects directory
-if ($Config.ProjectsDir -eq "" -or -not (Test-Path $Config.ProjectsDir)) {
-    if ($Config.ProjectsDir -ne "") {
+$needsProjectsDir = [string]::IsNullOrWhiteSpace($Config.ProjectsDir) -or -not (Test-Path -Path $Config.ProjectsDir -ErrorAction SilentlyContinue)
+
+if ($needsProjectsDir) {
+    if (-not [string]::IsNullOrWhiteSpace($Config.ProjectsDir)) {
         Write-Host "  Projects directory not found: $($Config.ProjectsDir)" -ForegroundColor Yellow
     }
     Write-Host ""
     $inputDir = Read-Host "  Enter your projects directory (e.g., C:\dev)"
-    if ($inputDir -eq "" -or -not (Test-Path $inputDir)) {
-        Write-Host "  Error: Valid projects directory required" -ForegroundColor Red
+
+    if ([string]::IsNullOrWhiteSpace($inputDir)) {
+        Write-Host "  Error: Projects directory is required" -ForegroundColor Red
         Write-Host "  Run 'quickstart -Init' for guided setup" -ForegroundColor Yellow
         exit 1
     }
+
+    if (-not (Test-Path -Path $inputDir -ErrorAction SilentlyContinue)) {
+        Write-Host "  Error: Directory does not exist: $inputDir" -ForegroundColor Red
+        Write-Host "  Run 'quickstart -Init' for guided setup" -ForegroundColor Yellow
+        exit 1
+    }
+
     $Config.ProjectsDir = $inputDir
 }
 
