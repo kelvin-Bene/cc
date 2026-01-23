@@ -281,7 +281,20 @@ function Start-MonitorTerminals {
     # Write picker script to temp file (avoids WT escaping issues)
     $pickerScript = Write-PickerScript -WorkingDir $WorkingDir -PostCommand $PostCommand
 
-    # Get positions for each window
+    # Single window - just maximize it on the monitor
+    if ($WindowCount -eq 1) {
+        $launchX = $Monitor.X + 100
+        $launchY = $Monitor.Y + 100
+        $title = "$WindowName-1"
+
+        # Use -M flag to maximize
+        $wtArgs = "--pos $launchX,$launchY -M --title `"$title`" powershell -ExecutionPolicy Bypass -NoExit -File `"$pickerScript`""
+        Start-Process "wt" -ArgumentList $wtArgs
+        Start-Sleep -Milliseconds 600
+        return
+    }
+
+    # Multiple windows - position them in a grid
     $positions = Get-WindowPositions -Monitor $Monitor -WindowCount $WindowCount
 
     # Launch each window
