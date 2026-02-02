@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bcmister/quickstart/internal/cmd"
+	"github.com/bcmister/qk/internal/cmd"
 )
 
 func main() {

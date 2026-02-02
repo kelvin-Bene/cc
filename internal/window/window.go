@@ -3,25 +3,26 @@ package window
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 
-	"github.com/bcmister/quickstart/internal/monitor"
+	"github.com/bcmister/qk/internal/monitor"
 )
 
 var (
-	user32            = syscall.NewLazyDLL("user32.dll")
-	procFindWindowW   = user32.NewProc("FindWindowW")
-	procSetWindowPos  = user32.NewProc("SetWindowPos")
-	procEnumWindows   = user32.NewProc("EnumWindows")
+	user32             = syscall.NewLazyDLL("user32.dll")
+	procFindWindowW    = user32.NewProc("FindWindowW")
+	procSetWindowPos   = user32.NewProc("SetWindowPos")
+	procEnumWindows    = user32.NewProc("EnumWindows")
 	procGetWindowTextW = user32.NewProc("GetWindowTextW")
 )
 
 const (
-	SWP_NOZORDER     = 0x0004
-	SWP_SHOWWINDOW   = 0x0040
-	HWND_TOP         = 0
+	SWP_NOZORDER  = 0x0004
+	SWP_SHOWWINDOW = 0x0040
+	HWND_TOP       = 0
 )
 
 // Position represents a window position and size
@@ -34,47 +35,39 @@ type Position struct {
 
 // LaunchConfig holds configuration for launching a terminal
 type LaunchConfig struct {
-	Title       string
-	WorkingDir  string
-	X           int
-	Y           int
-	Width       int
-	Height      int
-	Command     string
-	PostCommand string
+	Title      string
+	WorkingDir string
+	X          int
+	Y          int
+	Width      int
+	Height     int
+	Command    string // command to run after project selection
 }
 
 // CalculateLayout calculates window positions based on layout type
 func CalculateLayout(mon *monitor.Monitor, count int, layout string) []Position {
-	positions := make([]Position, count)
-
 	switch layout {
 	case "grid":
-		positions = calculateGrid(mon, count)
+		return calculateGrid(mon, count)
 	case "vertical":
-		positions = calculateVertical(mon, count)
+		return calculateVertical(mon, count)
 	case "horizontal":
-		positions = calculateHorizontal(mon, count)
+		return calculateHorizontal(mon, count)
 	case "full":
-		// Single window takes full monitor
-		positions = []Position{{
+		return []Position{{
 			X:      mon.X,
 			Y:      mon.Y,
 			Width:  mon.Width,
 			Height: mon.Height,
 		}}
 	default:
-		// Default to grid
-		positions = calculateGrid(mon, count)
+		return calculateGrid(mon, count)
 	}
-
-	return positions
 }
 
 func calculateGrid(mon *monitor.Monitor, count int) []Position {
 	positions := make([]Position, count)
 
-	// Calculate grid dimensions
 	cols := 1
 	rows := 1
 	for cols*rows < count {
@@ -91,7 +84,6 @@ func calculateGrid(mon *monitor.Monitor, count int) []Position {
 	for i := 0; i < count; i++ {
 		row := i / cols
 		col := i % cols
-
 		positions[i] = Position{
 			X:      mon.X + (col * cellWidth),
 			Y:      mon.Y + (row * cellHeight),
@@ -135,25 +127,30 @@ func calculateHorizontal(mon *monitor.Monitor, count int) []Position {
 	return positions
 }
 
-// LaunchTerminal launches a Windows Terminal window
+// LaunchTerminal launches a Windows Terminal window with an inline project picker
 func LaunchTerminal(cfg LaunchConfig) error {
-	// Build the command that will run in the terminal
-	// This runs the picker script which then runs the post-command
-	terminalCmd := fmt.Sprintf(
-		"powershell -ExecutionPolicy Bypass -File \"%s\" -ProjectsDir \"%s\" -PostCommand \"%s\"",
-		cfg.Command,
-		cfg.WorkingDir,
-		cfg.PostCommand,
+	// Escape single quotes in paths for PowerShell
+	escapedDir := strings.ReplaceAll(cfg.WorkingDir, "'", "''")
+	escapedCmd := strings.ReplaceAll(cfg.Command, "'", "''")
+
+	// Inline PowerShell picker: list subdirs, read selection, cd and run command
+	picker := fmt.Sprintf(
+		"$d='%s'; $p=Get-ChildItem $d -Dir; if($p.Count -eq 0){Write-Host 'No projects found in' $d; Read-Host; exit}; "+
+			"Write-Host ''; Write-Host ('Projects in ' + $d + ':') -ForegroundColor Cyan; Write-Host ''; "+
+			"$i=1; $p|%%{Write-Host ('  [' + $i + '] ' + $_.Name); $i++}; Write-Host ''; "+
+			"$s=Read-Host 'Pick'; "+
+			"$t=$p[[int]$s-1].FullName; Set-Location $t; "+
+			"Write-Host ''; Write-Host ('Opening ' + (Split-Path $t -Leaf) + '...') -ForegroundColor Green; Write-Host ''; "+
+			"Invoke-Expression '%s'",
+		escapedDir, escapedCmd,
 	)
 
-	// Launch Windows Terminal with specific title and working directory
-	// We use 'start' to launch it detached
+	// Launch as a separate wt process (no -w flag, so each is its own window)
 	args := []string{
 		"/c", "start", "wt",
-		"-w", "quickstart",
 		"--title", cfg.Title,
 		"-d", cfg.WorkingDir,
-		"cmd", "/k", terminalCmd,
+		"powershell", "-NoExit", "-Command", picker,
 	}
 
 	cmd := exec.Command("cmd", args...)
@@ -162,16 +159,15 @@ func LaunchTerminal(cfg LaunchConfig) error {
 		return fmt.Errorf("failed to launch terminal: %w", err)
 	}
 
-	// Wait a bit for the window to appear
+	// Wait for window to appear
 	time.Sleep(500 * time.Millisecond)
 
-	// Find the window by title and position it
+	// Find and position the window
 	hwnd, err := findWindowByTitle(cfg.Title)
 	if err != nil {
 		return fmt.Errorf("failed to find window: %w", err)
 	}
 
-	// Position the window
 	err = setWindowPosition(hwnd, cfg.X, cfg.Y, cfg.Width, cfg.Height)
 	if err != nil {
 		return fmt.Errorf("failed to position window: %w", err)
@@ -180,11 +176,9 @@ func LaunchTerminal(cfg LaunchConfig) error {
 	return nil
 }
 
-// findWindowByTitle finds a window handle by its title
 func findWindowByTitle(title string) (uintptr, error) {
 	var foundHwnd uintptr
 
-	// Try multiple times as window might take time to appear
 	for attempts := 0; attempts < 10; attempts++ {
 		callback := syscall.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
 			var windowTitle [256]uint16
@@ -193,9 +187,9 @@ func findWindowByTitle(title string) (uintptr, error) {
 			text := syscall.UTF16ToString(windowTitle[:])
 			if text == title || containsSubstring(text, title) {
 				foundHwnd = hwnd
-				return 0 // Stop enumeration
+				return 0
 			}
-			return 1 // Continue enumeration
+			return 1
 		})
 
 		procEnumWindows.Call(callback, 0)
@@ -213,7 +207,7 @@ func findWindowByTitle(title string) (uintptr, error) {
 func containsSubstring(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
 		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-		findSubstring(s, substr)))
+			findSubstring(s, substr)))
 }
 
 func findSubstring(s, substr string) bool {
@@ -225,7 +219,6 @@ func findSubstring(s, substr string) bool {
 	return false
 }
 
-// setWindowPosition positions a window at the specified coordinates
 func setWindowPosition(hwnd uintptr, x, y, width, height int) error {
 	ret, _, err := procSetWindowPos.Call(
 		hwnd,
