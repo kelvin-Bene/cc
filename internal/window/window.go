@@ -199,32 +199,86 @@ func LaunchAll(configs []LaunchConfig, command string) []LaunchResult {
 }
 
 func buildPickerScript(workingDir, command string) string {
-	return "$d = '" + workingDir + "'\n" +
+	// Pre-build ANSI codes as PS variables to avoid array-index parsing with [char]27 + '[xxm'
+	return "$R  = [char]27 + '[0m'\n" +
+		"$BC = [char]27 + '[96m'\n" +
+		"$C  = [char]27 + '[36m'\n" +
+		"$DG = [char]27 + '[90m'\n" +
+		"$BW = [char]27 + '[97m'\n" +
+		"$W  = [char]27 + '[37m'\n" +
+		"$BG = [char]27 + '[92m'\n" +
+		"$BY = [char]27 + '[93m'\n" +
+		"$BR = [char]27 + '[91m'\n" +
+		"$d = '" + workingDir + "'\n" +
 		"$p = Get-ChildItem $d -Directory\n" +
+		"Clear-Host\n" +
+
+		// Logo — gradient cyan to gray
+		"Write-Host ''\n" +
+		"Write-Host \"  ${BC} ██████╗ ██╗  ██╗${R}\"\n" +
+		"Write-Host \"  ${BC}██╔═══██╗██║ ██╔╝${R}\"\n" +
+		"Write-Host \"  ${C}██║   ██║█████╔╝${R}\"\n" +
+		"Write-Host \"  ${C}██║▄▄ ██║██╔═██╗${R}\"\n" +
+		"Write-Host \"  ${DG}╚██████╔╝██║  ██╗${R}\"\n" +
+		"Write-Host \"  ${DG} ╚══▀▀═╝ ╚═╝  ╚═╝${R}\"\n" +
+		"Write-Host ''\n" +
+		"$ln = $DG + ('─' * 38) + $R\n" +
+		"Write-Host \"  $ln\"\n" +
+
+		// Empty project guard
 		"if ($p.Count -eq 0) {\n" +
-		"    Write-Host 'No projects found in' $d\n" +
-		"    Read-Host 'Press Enter to exit'\n" +
+		"    Write-Host ''\n" +
+		"    Write-Host \"  ${BR}✗${R} ${BW}No projects in $d${R}\"\n" +
+		"    Write-Host ''\n" +
+		"    Read-Host '  Press Enter'\n" +
 		"    exit\n" +
 		"}\n" +
+
+		// Project list
 		"Write-Host ''\n" +
-		"Write-Host ('Projects in ' + $d + ':') -ForegroundColor Cyan\n" +
+		"Write-Host \"  ${BC}◆${R} ${BW}Select a project${R}\"\n" +
 		"Write-Host ''\n" +
 		"$i = 1\n" +
-		"$p | ForEach-Object { Write-Host ('  [' + $i + '] ' + $_.Name); $i++ }\n" +
+		"$p | ForEach-Object {\n" +
+		"    $num = $i.ToString().PadLeft(2)\n" +
+		"    Write-Host \"   ${BY}$num${R}  ${W}$($_.Name)${R}\"\n" +
+		"    $i++\n" +
+		"}\n" +
 		"Write-Host ''\n" +
-		"$s = Read-Host 'Pick'\n" +
+
+		// Prompt
+		"Write-Host \"  ${BC}▸${R} \" -NoNewline\n" +
+		"$s = Read-Host\n" +
 		"$idx = [int]$s - 1\n" +
+
+		// Validation
 		"if ($idx -lt 0 -or $idx -ge $p.Count) {\n" +
-		"    Write-Host 'Invalid selection.' -ForegroundColor Red\n" +
-		"    Read-Host 'Press Enter to exit'\n" +
+		"    Write-Host \"  ${BR}✗${R} ${BW}Invalid selection${R}\"\n" +
+		"    Read-Host '  Press Enter'\n" +
 		"    exit\n" +
 		"}\n" +
+
+		// Launch
 		"$t = $p[$idx].FullName\n" +
 		"Set-Location $t\n" +
 		"Write-Host ''\n" +
-		"Write-Host ('Opening ' + $p[$idx].Name + '...') -ForegroundColor Green\n" +
+		"Write-Host \"  ${BG}◆${R} ${BW}Opening $($p[$idx].Name)${R}\"\n" +
 		"Write-Host ''\n" +
 		command + "\n"
+}
+
+// LaunchTab opens a new tab in the current Windows Terminal window
+func LaunchTab(workingDir, command string) error {
+	script := buildPickerScript(workingDir, command)
+	encoded := encodePS(script)
+	args := []string{
+		"-w", "0",
+		"new-tab",
+		"-d", workingDir,
+		"powershell", "-NoExit", "-EncodedCommand", encoded,
+	}
+	cmd := exec.Command("wt", args...)
+	return cmd.Start()
 }
 
 // LaunchTerminal launches a single terminal (kept for backward compat)

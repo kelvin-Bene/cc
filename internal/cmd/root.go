@@ -6,6 +6,7 @@ import (
 
 	"github.com/bcmister/qk/internal/config"
 	"github.com/bcmister/qk/internal/monitor"
+	"github.com/bcmister/qk/internal/ui"
 	"github.com/bcmister/qk/internal/window"
 	"github.com/spf13/cobra"
 )
@@ -24,13 +25,13 @@ func init() {
 	rootCmd.AddCommand(setCmd)
 	rootCmd.AddCommand(monitorsCmd)
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(tabCmd)
 }
 
 func runQk(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load("")
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Auto-configure: detect monitors, 1 window each, default projects root
 			return autoLaunch()
 		}
 		return fmt.Errorf("failed to load config: %w", err)
@@ -56,7 +57,6 @@ func autoLaunch() error {
 		Monitors:     monConfigs,
 	}
 
-	// Save so next run is instant
 	config.Save(cfg, "")
 
 	return launch(cfg)
@@ -68,39 +68,93 @@ func launch(cfg *config.Config) error {
 		return fmt.Errorf("failed to detect monitors: %w", err)
 	}
 
-	// Build all launch configs up front
-	var configs []window.LaunchConfig
+	// Group configs by monitor for display
+	type monGroup struct {
+		monIdx  int
+		configs []window.LaunchConfig
+	}
+	var groups []monGroup
+
+	var allConfigs []window.LaunchConfig
 	for i, mc := range cfg.Monitors {
 		if i >= len(monitors) {
 			break
 		}
 		positions := window.CalculateLayout(&monitors[i], mc.Windows, mc.Layout)
+		g := monGroup{monIdx: i}
 		for j, pos := range positions {
-			configs = append(configs, window.LaunchConfig{
+			lc := window.LaunchConfig{
 				Title:      fmt.Sprintf("qk-%d-%d", i+1, j+1),
 				WorkingDir: cfg.ProjectsRoot,
 				X:          pos.X,
 				Y:          pos.Y,
 				Width:      pos.Width,
 				Height:     pos.Height,
-			})
+			}
+			allConfigs = append(allConfigs, lc)
+			g.configs = append(g.configs, lc)
 		}
+		groups = append(groups, g)
 	}
 
-	fmt.Printf("Launching %d terminals...", len(configs))
+	ui.Logo("")
+	ui.Sep()
+	ui.Head(fmt.Sprintf("Launching %d terminals across %d monitors", len(allConfigs), len(groups)))
+	fmt.Println()
 
-	// Launch all in parallel
-	results := window.LaunchAll(configs, config.Command)
+	results := window.LaunchAll(allConfigs, config.Command)
 
-	fmt.Println("done.")
+	// Build result lookup
+	resultMap := make(map[string]error)
+	for _, r := range results {
+		resultMap[r.Title] = r.Err
+	}
 
+	// Display per-monitor panels
+	for _, g := range groups {
+		badge := ""
+		if monitors[g.monIdx].Primary {
+			badge = "Primary"
+		}
+		ui.BoxStart(fmt.Sprintf("Monitor %d", g.monIdx+1), badge)
+		for _, c := range g.configs {
+			err := resultMap[c.Title]
+			label := fmt.Sprintf("%s%s%s", ui.White, c.Title, ui.Reset)
+			ui.BoxRow(fmt.Sprintf("%s  %s%s%s",
+				label,
+				statusColor(err == nil), statusIcon(err == nil), ui.Reset))
+		}
+		ui.BoxEnd()
+	}
+
+	// Print any warnings
+	hasWarn := false
 	for _, r := range results {
 		if r.Err != nil {
-			fmt.Printf("  Warning: %s: %v\n", r.Title, r.Err)
+			if !hasWarn {
+				fmt.Println()
+				hasWarn = true
+			}
+			ui.Warn(fmt.Sprintf("%s: %v", r.Title, r.Err))
 		}
 	}
 
+	ui.Fin("All terminals launched")
 	return nil
+}
+
+func statusIcon(ok bool) string {
+	if ok {
+		return ui.Check
+	}
+	return ui.Cross
+}
+
+func statusColor(ok bool) string {
+	if ok {
+		return ui.BrGreen
+	}
+	return ui.BrRed
 }
 
 var monitorsCmd = &cobra.Command{
@@ -115,17 +169,23 @@ func runMonitors(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect monitors: %w", err)
 	}
 
-	fmt.Printf("Detected %d monitors:\n\n", len(monitors))
+	ui.Head(fmt.Sprintf("Detected %d monitors", len(monitors)))
+	fmt.Println()
+
 	for i, m := range monitors {
-		primary := ""
+		badge := ""
 		if m.Primary {
-			primary = " (Primary)"
+			badge = "Primary"
 		}
-		fmt.Printf("  Monitor %d%s:\n", i+1, primary)
-		fmt.Printf("    Resolution: %dx%d\n", m.Width, m.Height)
-		fmt.Printf("    Position:   (%d, %d)\n", m.X, m.Y)
-		fmt.Println()
+		ui.BoxStart(fmt.Sprintf("Monitor %d", i+1), badge)
+		ui.BoxRow(fmt.Sprintf("%sResolution%s   %s%d × %d%s",
+			ui.DkGray, ui.Reset, ui.BrWhite, m.Width, m.Height, ui.Reset))
+		ui.BoxRow(fmt.Sprintf("%sPosition%s     %s(%d, %d)%s",
+			ui.DkGray, ui.Reset, ui.White, m.X, m.Y, ui.Reset))
+		ui.BoxEnd()
 	}
+
+	fmt.Println()
 	return nil
 }
 
@@ -133,6 +193,9 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("qk v0.3.0")
+		fmt.Printf("\n %sqk%s %sv0.3.0%s %s%s quickstart terminal launcher%s\n\n",
+			ui.BrCyan+ui.Bold, ui.Reset,
+			ui.BrWhite, ui.Reset,
+			ui.DkGray, ui.Dot, ui.Reset)
 	},
 }

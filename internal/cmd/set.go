@@ -9,6 +9,7 @@ import (
 
 	"github.com/bcmister/qk/internal/config"
 	"github.com/bcmister/qk/internal/monitor"
+	"github.com/bcmister/qk/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +29,11 @@ func runSet(cmd *cobra.Command, args []string) error {
 		defaultRoot = existing.ProjectsRoot
 	}
 
-	fmt.Printf("Projects root [%s]: ", defaultRoot)
+	ui.Logo("setup")
+	ui.Sep()
+
+	// --- Projects root ---
+	ui.Prompt("Projects root", defaultRoot)
 	projectsRoot, _ := reader.ReadString('\n')
 	projectsRoot = strings.TrimSpace(projectsRoot)
 	if projectsRoot == "" {
@@ -36,32 +41,36 @@ func runSet(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := os.Stat(projectsRoot); os.IsNotExist(err) {
-		fmt.Printf("Directory '%s' does not exist. Create it? [Y/n]: ", projectsRoot)
+		fmt.Printf("   %sDirectory does not exist. Create it?%s %s[Y/n]%s  %s%s%s ",
+			ui.White, ui.Reset, ui.DkGray, ui.Reset, ui.BrCyan, ui.Arrow, ui.Reset)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer == "" || answer == "y" || answer == "yes" {
 			os.MkdirAll(projectsRoot, 0755)
-			fmt.Println("Created.")
+			fmt.Printf("   %s%s Created%s\n", ui.BrGreen, ui.Check, ui.Reset)
 		}
 	}
 
-	fmt.Println()
-	fmt.Print("Detecting monitors...")
+	// --- Detect monitors ---
+	ui.Head("Detecting monitors...")
 	monitors, err := monitor.Detect()
 	if err != nil {
 		return fmt.Errorf("failed to detect monitors: %w", err)
 	}
-	fmt.Printf(" found %d\n", len(monitors))
-
-	for i, m := range monitors {
-		primary := ""
-		if m.Primary {
-			primary = " (Primary)"
-		}
-		fmt.Printf("  Monitor %d: %dx%d%s\n", i+1, m.Width, m.Height, primary)
-	}
+	fmt.Printf("   %sfound %d%s\n", ui.BrWhite, len(monitors), ui.Reset)
 	fmt.Println()
 
+	for i, m := range monitors {
+		badge := ""
+		if m.Primary {
+			badge = "Primary"
+		}
+		ui.BoxStart(fmt.Sprintf("Monitor %d", i+1), badge)
+		ui.BoxRow(fmt.Sprintf("%s%d × %d%s", ui.BrWhite, m.Width, m.Height, ui.Reset))
+		ui.BoxEnd()
+	}
+
+	// --- Windows per monitor ---
 	monitorConfigs := make([]config.MonitorConfig, len(monitors))
 	for i := range monitors {
 		defaultWindows := 1
@@ -69,7 +78,7 @@ func runSet(cmd *cobra.Command, args []string) error {
 			defaultWindows = existing.Monitors[i].Windows
 		}
 
-		fmt.Printf("Windows on Monitor %d [%d]: ", i+1, defaultWindows)
+		ui.Prompt(fmt.Sprintf("Windows on Monitor %d", i+1), strconv.Itoa(defaultWindows))
 		windowsStr, _ := reader.ReadString('\n')
 		windowsStr = strings.TrimSpace(windowsStr)
 		windows := defaultWindows
@@ -93,6 +102,7 @@ func runSet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// --- Save ---
 	cfg := &config.Config{
 		Version:      2,
 		ProjectsRoot: projectsRoot,
@@ -104,7 +114,10 @@ func runSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("\nSaved to %s\n", configPath)
-	fmt.Println("Run 'qk' to launch.")
+	ui.Sep()
+	ui.Ok("Configuration saved")
+	fmt.Printf("   %s%s %s%s\n", ui.DkGray, ui.Arrow, configPath, ui.Reset)
+	fmt.Println()
+	fmt.Printf(" %sRun %sqk%s%s to launch.%s\n\n", ui.DkGray, ui.BrCyan, ui.Reset, ui.DkGray, ui.Reset)
 	return nil
 }
