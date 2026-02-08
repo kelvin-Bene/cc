@@ -26,7 +26,7 @@ type MonitorConfig struct {
 // DefaultConfigPath returns the default configuration file path
 func DefaultConfigPath() string {
 	homeDir, _ := os.UserHomeDir()
-	return filepath.Join(homeDir, ".qk", "config.yaml")
+	return filepath.Join(homeDir, ".cc", "config.yaml")
 }
 
 // DefaultProjectsRoot returns the default projects directory

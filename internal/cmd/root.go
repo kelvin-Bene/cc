@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bcmister/qk/internal/config"
-	"github.com/bcmister/qk/internal/monitor"
-	"github.com/bcmister/qk/internal/ui"
-	"github.com/bcmister/qk/internal/window"
+	"github.com/bcmister/cc/internal/config"
+	"github.com/bcmister/cc/internal/monitor"
+	"github.com/bcmister/cc/internal/ui"
+	"github.com/bcmister/cc/internal/window"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "qk",
+	Use:   "cc",
 	Short: "Quick project picker for terminal",
-	RunE:  runQk,
+	RunE:  runCc,
 }
 
 func Execute() error {
@@ -28,7 +28,7 @@ func init() {
 	rootCmd.AddCommand(allCmd)
 }
 
-func runQk(cmd *cobra.Command, args []string) error {
+func runCc(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load("")
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -79,7 +79,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("\n %sqk%s %sv0.3.0%s %s%s quickstart terminal launcher%s\n\n",
+		fmt.Printf("\n %scc%s %sv0.3.0%s %s%s quickstart terminal launcher%s\n\n",
 			ui.BrCyan+ui.Bold, ui.Reset,
 			ui.BrWhite, ui.Reset,
 			ui.DkGray, ui.Dot, ui.Reset)

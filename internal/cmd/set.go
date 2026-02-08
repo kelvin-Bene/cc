@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bcmister/qk/internal/config"
-	"github.com/bcmister/qk/internal/monitor"
-	"github.com/bcmister/qk/internal/ui"
+	"github.com/bcmister/cc/internal/config"
+	"github.com/bcmister/cc/internal/monitor"
+	"github.com/bcmister/cc/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -118,6 +118,6 @@ func runSet(cmd *cobra.Command, args []string) error {
 	ui.Ok("Configuration saved")
 	fmt.Printf("   %s%s %s%s\n", ui.DkGray, ui.Arrow, configPath, ui.Reset)
 	fmt.Println()
-	fmt.Printf(" %sRun %sqk%s%s to launch.%s\n\n", ui.DkGray, ui.BrCyan, ui.Reset, ui.DkGray, ui.Reset)
+	fmt.Printf(" %sRun %scc%s%s to launch.%s\n\n", ui.DkGray, ui.BrCyan, ui.Reset, ui.DkGray, ui.Reset)
 	return nil
 }

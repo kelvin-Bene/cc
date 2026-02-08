@@ -1,4 +1,4 @@
-module github.com/bcmister/qk
+module github.com/bcmister/cc
 
 go 1.21
 

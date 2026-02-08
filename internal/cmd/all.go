@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bcmister/qk/internal/config"
-	"github.com/bcmister/qk/internal/monitor"
-	"github.com/bcmister/qk/internal/ui"
-	"github.com/bcmister/qk/internal/window"
+	"github.com/bcmister/cc/internal/config"
+	"github.com/bcmister/cc/internal/monitor"
+	"github.com/bcmister/cc/internal/ui"
+	"github.com/bcmister/cc/internal/window"
 	"github.com/spf13/cobra"
 )
 
@@ -73,7 +73,7 @@ func launchAll(cfg *config.Config) error {
 		g := monGroup{monIdx: i}
 		for j, pos := range positions {
 			lc := window.LaunchConfig{
-				Title:      fmt.Sprintf("qk-%d-%d", i+1, j+1),
+				Title:      fmt.Sprintf("cc-%d-%d", i+1, j+1),
 				WorkingDir: cfg.ProjectsRoot,
 				X:          pos.X,
 				Y:          pos.Y,

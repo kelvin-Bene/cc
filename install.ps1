@@ -1,4 +1,4 @@
-﻿# qk Installer
+﻿# cc Installer
 
 $ErrorActionPreference = "Stop"
 
@@ -30,28 +30,28 @@ Write-Host "  $line"
 Write-Host ""
 Write-Host "  ${BC}◆${R} ${BW}Building${R}"
 
-go build -o qk.exe .
+go build -o cc.exe .
 if ($LASTEXITCODE -ne 0) {
     Write-Host "   ${BR}✗ Build failed${R}"
     exit 1
 }
-Write-Host "   ${DG}▪${R} qk.exe                     ${BG}✓${R}"
+Write-Host "   ${DG}▪${R} cc.exe                     ${BG}✓${R}"
 
 # Install
-$installDir = "$env:USERPROFILE\.qk\bin"
+$installDir = "$env:USERPROFILE\.cc\bin"
 
 Write-Host ""
 Write-Host "  ${BC}◆${R} ${BW}Installing${R}"
 
 if (-not (Test-Path $installDir)) {
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    Write-Host "   ${DG}▪${R} Created ~/.qk/bin/          ${BG}✓${R}"
+    Write-Host "   ${DG}▪${R} Created ~/.cc/bin/          ${BG}✓${R}"
 }
 
-Copy-Item "qk.exe" -Destination "$installDir\qk.exe" -Force
-Write-Host "   ${DG}▪${R} Copied to ~/.qk/bin/        ${BG}✓${R}"
+Copy-Item "cc.exe" -Destination "$installDir\cc.exe" -Force
+Write-Host "   ${DG}▪${R} Copied to ~/.cc/bin/        ${BG}✓${R}"
 
-Remove-Item "qk.exe" -ErrorAction SilentlyContinue
+Remove-Item "cc.exe" -ErrorAction SilentlyContinue
 
 # PATH
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -67,7 +67,7 @@ if ($userPath -notlike "*$installDir*") {
 # Done
 Write-Host ""
 Write-Host "  $line"
-Write-Host "  ${BG}◆${R} ${BW}Ready${R} ${DG}· run${R} ${BC}qk set${R} ${DG}to configure${R}"
+Write-Host "  ${BG}◆${R} ${BW}Ready${R} ${DG}· run${R} ${BC}cc set${R} ${DG}to configure${R}"
 Write-Host ""
 
 

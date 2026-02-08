@@ -11,7 +11,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
-	"github.com/bcmister/qk/internal/monitor"
+	"github.com/bcmister/cc/internal/monitor"
 )
 
 var (
@@ -293,7 +293,7 @@ function FilterList {
 # Setup - ANSI clear + cursor home (avoids CursorPosition.Y bug in Windows Terminal)
 Write-Host "$([char]27)[2J$([char]27)[H${HID}" -NoNewline
 Write-Host ""
-Write-Host "  ${CYN}qk${R} ${DIM}· select project${R}"
+Write-Host "  ${CYN}cc${R} ${DIM}· select project${R}"
 Write-Host ""
 
 $startY = 3

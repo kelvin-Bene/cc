@@ -45,7 +45,7 @@ var logoLines = []struct {
 	{DkGray, "  ╚══▀▀═╝ ╚═╝  ╚═╝"},
 }
 
-// Logo prints the qk ASCII art with an optional right-side subtitle.
+// Logo prints the cc ASCII art with an optional right-side subtitle.
 func Logo(subtitle string) {
 	fmt.Println()
 	for i, l := range logoLines {
