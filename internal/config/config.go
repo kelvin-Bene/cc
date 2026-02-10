@@ -9,6 +9,21 @@ import (
 )
 
 const Command = "claude --dangerously-skip-permissions"
+const CodexCommand = "codex --full-auto"
+
+func CommandFor(bin string) string {
+	if bin == "cx" {
+		return CodexCommand
+	}
+	return Command
+}
+
+func LabelFor(bin string) string {
+	if bin == "cx" {
+		return "cx"
+	}
+	return "cc"
+}
 
 // Config represents the application configuration
 type Config struct {

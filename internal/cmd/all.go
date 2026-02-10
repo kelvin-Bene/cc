@@ -73,7 +73,7 @@ func launchAll(cfg *config.Config) error {
 		g := monGroup{monIdx: i}
 		for j, pos := range positions {
 			lc := window.LaunchConfig{
-				Title:      fmt.Sprintf("cc-%d-%d", i+1, j+1),
+				Title:      fmt.Sprintf("%s-%d-%d", ActiveLabel, i+1, j+1),
 				WorkingDir: cfg.ProjectsRoot,
 				X:          pos.X,
 				Y:          pos.Y,
@@ -90,7 +90,7 @@ func launchAll(cfg *config.Config) error {
 	ui.Sep()
 
 	// Use current terminal for first window, spawn others
-	launchResult := window.LaunchAllWithCurrent(allConfigs, config.Command)
+	launchResult := window.LaunchAllWithCurrent(allConfigs, ActiveCommand, ActiveLabel)
 	results := launchResult.Results
 
 	// Adjust messaging based on how many new windows were spawned

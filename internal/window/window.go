@@ -150,14 +150,14 @@ func encodePS(script string) string {
 }
 
 // LaunchAll launches all terminals in parallel and positions them
-func LaunchAll(configs []LaunchConfig, command string) []LaunchResult {
+func LaunchAll(configs []LaunchConfig, command, label string) []LaunchResult {
 	results := make([]LaunchResult, len(configs))
 
 	// Pre-encode the picker script once (same for all terminals)
 	// Each terminal gets its own title but same picker logic
 	scripts := make([]string, len(configs))
 	for i, cfg := range configs {
-		scripts[i] = buildPickerScript(cfg.WorkingDir, command)
+		scripts[i] = buildPickerScript(cfg.WorkingDir, command, label)
 		_ = scripts[i] // used below
 		results[i].Title = cfg.Title
 	}
@@ -202,7 +202,7 @@ func LaunchAll(configs []LaunchConfig, command string) []LaunchResult {
 	return results
 }
 
-func buildPickerScript(workingDir, command string) string {
+func buildPickerScript(workingDir, command, label string) string {
 	// Interactive arrow-key picker with fuzzy filtering
 	// Inspired by fzf/gum - navigate with arrows, type to filter, enter to select
 	return `
@@ -293,7 +293,7 @@ function FilterList {
 # Setup - ANSI clear + cursor home (avoids CursorPosition.Y bug in Windows Terminal)
 Write-Host "$([char]27)[2J$([char]27)[H${HID}" -NoNewline
 Write-Host ""
-Write-Host "  ${CYN}cc${R} ${DIM}· select project${R}"
+Write-Host "  ${CYN}` + label + `${R} ${DIM}· select project${R}"
 Write-Host ""
 
 $startY = 3
@@ -381,8 +381,8 @@ while ($true) {
 }
 
 // LaunchTab opens a new tab in the current Windows Terminal window
-func LaunchTab(workingDir, command string) error {
-	script := buildPickerScript(workingDir, command)
+func LaunchTab(workingDir, command, label string) error {
+	script := buildPickerScript(workingDir, command, label)
 	encoded := encodePS(script)
 	args := []string{
 		"-w", "0",
@@ -395,8 +395,8 @@ func LaunchTab(workingDir, command string) error {
 }
 
 // LaunchTerminal launches a single terminal (kept for backward compat)
-func LaunchTerminal(cfg LaunchConfig, command string) error {
-	results := LaunchAll([]LaunchConfig{cfg}, command)
+func LaunchTerminal(cfg LaunchConfig, command, label string) error {
+	results := LaunchAll([]LaunchConfig{cfg}, command, label)
 	return results[0].Err
 }
 
@@ -469,8 +469,8 @@ func GetCurrentConsoleWindow() uintptr {
 }
 
 // RunPickerInCurrent runs the picker script in the current terminal (blocking)
-func RunPickerInCurrent(workingDir, command string) error {
-	script := buildPickerScript(workingDir, command)
+func RunPickerInCurrent(workingDir, command, label string) error {
+	script := buildPickerScript(workingDir, command, label)
 	encoded := encodePS(script)
 
 	cmd := exec.Command("powershell", "-NoExit", "-EncodedCommand", encoded)
@@ -489,7 +489,7 @@ type LaunchAllWithCurrentResult struct {
 
 // LaunchAllWithCurrent launches terminals where index 0 uses the current terminal
 // and indexes 1+ spawn new windows. Returns results and a picker function to run last.
-func LaunchAllWithCurrent(configs []LaunchConfig, command string) LaunchAllWithCurrentResult {
+func LaunchAllWithCurrent(configs []LaunchConfig, command, label string) LaunchAllWithCurrentResult {
 	if len(configs) == 0 {
 		return LaunchAllWithCurrentResult{
 			Results:   nil,
@@ -509,7 +509,7 @@ func LaunchAllWithCurrent(configs []LaunchConfig, command string) LaunchAllWithC
 	if len(configs) > 1 {
 		for i := 1; i < len(configs); i++ {
 			cfg := configs[i]
-			script := buildPickerScript(cfg.WorkingDir, command)
+			script := buildPickerScript(cfg.WorkingDir, command, label)
 			encoded := encodePS(script)
 			args := []string{
 				"--title", cfg.Title,
@@ -563,7 +563,7 @@ func LaunchAllWithCurrent(configs []LaunchConfig, command string) LaunchAllWithC
 
 	// Return results and a picker function to call last
 	picker := func() error {
-		return RunPickerInCurrent(configs[0].WorkingDir, command)
+		return RunPickerInCurrent(configs[0].WorkingDir, command, label)
 	}
 
 	return LaunchAllWithCurrentResult{

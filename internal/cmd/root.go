@@ -3,12 +3,19 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bcmister/cc/internal/config"
 	"github.com/bcmister/cc/internal/monitor"
 	"github.com/bcmister/cc/internal/ui"
 	"github.com/bcmister/cc/internal/window"
 	"github.com/spf13/cobra"
+)
+
+var (
+	ActiveCommand string
+	ActiveLabel   string
 )
 
 var rootCmd = &cobra.Command{
@@ -18,6 +25,10 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() error {
+	bin := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
+	ActiveLabel = config.LabelFor(bin)
+	ActiveCommand = config.CommandFor(bin)
+	rootCmd.Use = ActiveLabel
 	return rootCmd.Execute()
 }
 
@@ -40,7 +51,7 @@ func runCc(cmd *cobra.Command, args []string) error {
 		}
 	}
 	// Run picker directly - no UI chrome, fastest path
-	return window.RunPickerInCurrent(cfg.ProjectsRoot, config.Command)
+	return window.RunPickerInCurrent(cfg.ProjectsRoot, ActiveCommand, ActiveLabel)
 }
 
 var monitorsCmd = &cobra.Command{
@@ -79,8 +90,8 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("\n %scc%s %sv0.3.0%s %s%s quickstart terminal launcher%s\n\n",
-			ui.BrCyan+ui.Bold, ui.Reset,
+		fmt.Printf("\n %s%s%s %sv0.3.0%s %s%s quickstart terminal launcher%s\n\n",
+			ui.BrCyan+ui.Bold, ActiveLabel, ui.Reset,
 			ui.BrWhite, ui.Reset,
 			ui.DkGray, ui.Dot, ui.Reset)
 	},
