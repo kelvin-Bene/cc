@@ -29,6 +29,12 @@ func Execute() error {
 	ActiveLabel = config.LabelFor(bin)
 	ActiveCommand = config.CommandFor(bin)
 	rootCmd.Use = ActiveLabel
+
+	// Busybox dispatch: when invoked as "all", run the wizard directly
+	if bin == "all" {
+		rootCmd.RunE = runAll
+	}
+
 	return rootCmd.Execute()
 }
 

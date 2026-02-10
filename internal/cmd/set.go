@@ -70,12 +70,15 @@ func runSet(cmd *cobra.Command, args []string) error {
 		ui.BoxEnd()
 	}
 
-	// --- Windows per monitor ---
+	// --- Windows per monitor (v3 format) ---
 	monitorConfigs := make([]config.MonitorConfig, len(monitors))
 	for i := range monitors {
 		defaultWindows := 1
 		if existing != nil && i < len(existing.Monitors) {
-			defaultWindows = existing.Monitors[i].Windows
+			defaultWindows = existing.Monitors[i].WindowCount()
+			if defaultWindows < 1 {
+				defaultWindows = 1
+			}
 		}
 
 		ui.Prompt(fmt.Sprintf("Windows on Monitor %d", i+1), strconv.Itoa(defaultWindows))
@@ -96,15 +99,21 @@ func runSet(cmd *cobra.Command, args []string) error {
 			layout = "grid"
 		}
 
+		// Build WindowConfig slice, defaulting all to "cc"
+		wcs := make([]config.WindowConfig, windows)
+		for j := range wcs {
+			wcs[j] = config.WindowConfig{Tool: "cc"}
+		}
+
 		monitorConfigs[i] = config.MonitorConfig{
-			Windows: windows,
 			Layout:  layout,
+			Windows: wcs,
 		}
 	}
 
 	// --- Save ---
 	cfg := &config.Config{
-		Version:      2,
+		Version:      3,
 		ProjectsRoot: projectsRoot,
 		Monitors:     monitorConfigs,
 	}

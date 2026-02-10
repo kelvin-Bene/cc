@@ -38,6 +38,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "   ${DG}▪${R} cc.exe                     ${BG}✓${R}"
 Copy-Item "cc.exe" -Destination "cx.exe" -Force
 Write-Host "   ${DG}▪${R} cx.exe (codex)             ${BG}✓${R}"
+Copy-Item "cc.exe" -Destination "all.exe" -Force
+Write-Host "   ${DG}▪${R} all.exe (multi)            ${BG}✓${R}"
 
 # Install
 $installDir = "$env:USERPROFILE\.cc\bin"
@@ -54,9 +56,12 @@ Copy-Item "cc.exe" -Destination "$installDir\cc.exe" -Force
 Write-Host "   ${DG}▪${R} Copied cc.exe               ${BG}✓${R}"
 Copy-Item "cx.exe" -Destination "$installDir\cx.exe" -Force
 Write-Host "   ${DG}▪${R} Copied cx.exe               ${BG}✓${R}"
+Copy-Item "all.exe" -Destination "$installDir\all.exe" -Force
+Write-Host "   ${DG}▪${R} Copied all.exe              ${BG}✓${R}"
 
 Remove-Item "cc.exe" -ErrorAction SilentlyContinue
 Remove-Item "cx.exe" -ErrorAction SilentlyContinue
+Remove-Item "all.exe" -ErrorAction SilentlyContinue
 
 # PATH
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -72,7 +77,6 @@ if ($userPath -notlike "*$installDir*") {
 # Done
 Write-Host ""
 Write-Host "  $line"
-Write-Host "  ${BG}◆${R} ${BW}Ready${R} ${DG}·${R} ${BC}cc${R} ${DG}(claude)${R} ${BC}cx${R} ${DG}(codex)${R}"
+Write-Host "  ${BG}◆${R} ${BW}Ready${R} ${DG}·${R} ${BC}cc${R} ${DG}(claude)${R} ${BC}cx${R} ${DG}(codex)${R} ${BC}all${R} ${DG}(multi)${R}"
 Write-Host ""
-
 

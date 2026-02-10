@@ -47,6 +47,8 @@ type LaunchConfig struct {
 	Y          int
 	Width      int
 	Height     int
+	Command    string // e.g. "claude --dangerously-skip-permissions"
+	Label      string // e.g. "cc" or "cx"
 }
 
 // LaunchResult holds the outcome of a terminal launch
@@ -149,16 +151,14 @@ func encodePS(script string) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-// LaunchAll launches all terminals in parallel and positions them
-func LaunchAll(configs []LaunchConfig, command, label string) []LaunchResult {
+// LaunchAll launches all terminals in parallel and positions them.
+// Each config carries its own Command and Label.
+func LaunchAll(configs []LaunchConfig) []LaunchResult {
 	results := make([]LaunchResult, len(configs))
 
-	// Pre-encode the picker script once (same for all terminals)
-	// Each terminal gets its own title but same picker logic
 	scripts := make([]string, len(configs))
 	for i, cfg := range configs {
-		scripts[i] = buildPickerScript(cfg.WorkingDir, command, label)
-		_ = scripts[i] // used below
+		scripts[i] = buildPickerScript(cfg.WorkingDir, cfg.Command, cfg.Label)
 		results[i].Title = cfg.Title
 	}
 
@@ -203,8 +203,6 @@ func LaunchAll(configs []LaunchConfig, command, label string) []LaunchResult {
 }
 
 func buildPickerScript(workingDir, command, label string) string {
-	// Interactive arrow-key picker with fuzzy filtering
-	// Inspired by fzf/gum - navigate with arrows, type to filter, enter to select
 	return `
 $R   = [char]27 + '[0m'
 $DIM = [char]27 + '[90m'
@@ -236,21 +234,16 @@ $maxShow = 12
 function Draw {
     param($items, $sel, $filter, $startY, $viewOffset)
 
-    # Recalculate maxShow based on current terminal height (no item clamp — loop always
-    # draws full height so stale rows get blanked when filter shrinks the list)
     $termH = $Host.UI.RawUI.WindowSize.Height
     $script:maxShow = [Math]::Max(1, $termH - $startY - 4)
 
-    # Clamp viewOffset after potential resize
     $maxOff = [Math]::Max(0, $items.Count - $script:maxShow)
     if ($viewOffset -gt $maxOff) { $viewOffset = $maxOff }
     $script:viewOffset = $viewOffset
 
-    # ANSI cursor positioning (1-indexed row)
     $row = $startY + 1
     Write-Host "$([char]27)[${row};1H" -NoNewline
 
-    # Header with filter
     if ($filter -eq "") {
         Write-Host "  ${CYN}>${R} ${DIM}type to filter...${R}                    " -NoNewline
     } else {
@@ -259,7 +252,6 @@ function Draw {
     Write-Host ""
     Write-Host "  ${DIM}─────────────────────────────────${R}      "
 
-    # Items (with viewport scrolling)
     for ($i = 0; $i -lt $script:maxShow; $i++) {
         $itemIdx = $viewOffset + $i
         if ($itemIdx -lt $items.Count) {
@@ -274,7 +266,6 @@ function Draw {
         }
     }
 
-    # Footer with position indicator
     Write-Host ""
     if ($items.Count -gt $script:maxShow) {
         Write-Host "  ${DIM}↑↓${R} navigate  ${DIM}($($sel+1)/$($items.Count))${R}  ${DIM}esc${R} quit     " -NoNewline
@@ -290,8 +281,12 @@ function FilterList {
     return @($items | Where-Object { $_.ToLower().Contains($q) })
 }
 
-# Setup - ANSI clear + cursor home (avoids CursorPosition.Y bug in Windows Terminal)
+# Setup - ANSI clear + cursor home
 Write-Host "$([char]27)[2J$([char]27)[H${HID}" -NoNewline
+
+# 50ms delay to let terminal settle after repositioning
+Start-Sleep -Milliseconds 50
+
 Write-Host ""
 Write-Host "  ${CYN}` + label + `${R} ${DIM}· select project${R}"
 Write-Host ""
@@ -302,11 +297,21 @@ $maxShow = [Math]::Max(1, $termH - $startY - 4)
 $filtered = $all
 Draw $filtered $sel $filter $startY $viewOffset
 
-# Main loop
+# Main loop with try/finally for cursor restore
+$readErr = 0
+try {
 while ($true) {
     try {
         $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        $readErr = 0
     } catch {
+        $readErr++
+        if ($readErr -ge 20) {
+            Write-Host "${SHW}" -NoNewline
+            Write-Host ""
+            Write-Host "  ${RED}Input error${R}"
+            exit 1
+        }
         Start-Sleep -Milliseconds 50
         continue
     }
@@ -377,6 +382,9 @@ while ($true) {
         Draw $filtered $sel $filter $startY $viewOffset
     }
 }
+} finally {
+    Write-Host "${SHW}" -NoNewline
+}
 `
 }
 
@@ -395,8 +403,8 @@ func LaunchTab(workingDir, command, label string) error {
 }
 
 // LaunchTerminal launches a single terminal (kept for backward compat)
-func LaunchTerminal(cfg LaunchConfig, command, label string) error {
-	results := LaunchAll([]LaunchConfig{cfg}, command, label)
+func LaunchTerminal(cfg LaunchConfig) error {
+	results := LaunchAll([]LaunchConfig{cfg})
 	return results[0].Err
 }
 
@@ -468,12 +476,13 @@ func GetCurrentConsoleWindow() uintptr {
 	return hwnd
 }
 
-// RunPickerInCurrent runs the picker script in the current terminal (blocking)
+// RunPickerInCurrent runs the picker script in the current terminal (blocking).
+// Bug fix: removed -NoExit so the process exits cleanly after picker selection.
 func RunPickerInCurrent(workingDir, command, label string) error {
 	script := buildPickerScript(workingDir, command, label)
 	encoded := encodePS(script)
 
-	cmd := exec.Command("powershell", "-NoExit", "-EncodedCommand", encoded)
+	cmd := exec.Command("powershell", "-EncodedCommand", encoded)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -483,13 +492,13 @@ func RunPickerInCurrent(workingDir, command, label string) error {
 
 // LaunchAllWithCurrentResult holds the results and a picker function
 type LaunchAllWithCurrentResult struct {
-	Results    []LaunchResult
-	RunPicker  func() error
+	Results   []LaunchResult
+	RunPicker func() error
 }
 
 // LaunchAllWithCurrent launches terminals where index 0 uses the current terminal
-// and indexes 1+ spawn new windows. Returns results and a picker function to run last.
-func LaunchAllWithCurrent(configs []LaunchConfig, command, label string) LaunchAllWithCurrentResult {
+// and indexes 1+ spawn new windows. Each config carries its own Command and Label.
+func LaunchAllWithCurrent(configs []LaunchConfig) LaunchAllWithCurrentResult {
 	if len(configs) == 0 {
 		return LaunchAllWithCurrentResult{
 			Results:   nil,
@@ -505,11 +514,11 @@ func LaunchAllWithCurrent(configs []LaunchConfig, command, label string) LaunchA
 	// Get current console window handle for positioning
 	currentHwnd := GetCurrentConsoleWindow()
 
-	// Launch additional windows (configs[1:]) via wt
+	// Launch additional windows (configs[1:]) via wt — each with its own command/label
 	if len(configs) > 1 {
 		for i := 1; i < len(configs); i++ {
 			cfg := configs[i]
-			script := buildPickerScript(cfg.WorkingDir, command, label)
+			script := buildPickerScript(cfg.WorkingDir, cfg.Command, cfg.Label)
 			encoded := encodePS(script)
 			args := []string{
 				"--title", cfg.Title,
@@ -561,9 +570,9 @@ func LaunchAllWithCurrent(configs []LaunchConfig, command, label string) LaunchA
 	}
 	wg.Wait()
 
-	// Return results and a picker function to call last
+	// Return results and a picker function — uses first config's command/label
 	picker := func() error {
-		return RunPickerInCurrent(configs[0].WorkingDir, command, label)
+		return RunPickerInCurrent(configs[0].WorkingDir, configs[0].Command, configs[0].Label)
 	}
 
 	return LaunchAllWithCurrentResult{

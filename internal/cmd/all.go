@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/bcmister/cc/internal/config"
 	"github.com/bcmister/cc/internal/monitor"
@@ -13,72 +16,159 @@ import (
 
 var allCmd = &cobra.Command{
 	Use:   "all",
-	Short: "Launch terminal windows across all monitors with project picker",
+	Short: "Launch terminal windows across all monitors with per-window CLI selection",
 	RunE:  runAll,
 }
 
 func runAll(cmd *cobra.Command, args []string) error {
+	reader := bufio.NewReader(os.Stdin)
+
+	// Load existing config for defaults (or start fresh)
 	cfg, err := config.Load("")
 	if err != nil {
-		if os.IsNotExist(err) {
-			return autoLaunchAll()
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to load config: %w", err)
 		}
-		return fmt.Errorf("failed to load config: %w", err)
+		cfg = &config.Config{
+			Version:      3,
+			ProjectsRoot: config.DefaultProjectsRoot(),
+		}
 	}
 
-	return launchAll(cfg)
-}
-
-func autoLaunchAll() error {
+	// Detect monitors
 	monitors, err := monitor.Detect()
 	if err != nil {
 		return fmt.Errorf("failed to detect monitors: %w", err)
 	}
 
-	monConfigs := make([]config.MonitorConfig, len(monitors))
+	ui.Logo("")
+	ui.Sep()
+
+	ui.Head(fmt.Sprintf("Detected %d monitors", len(monitors)))
+	fmt.Println()
+	for i, m := range monitors {
+		badge := ""
+		if m.Primary {
+			badge = "Primary"
+		}
+		ui.BoxStart(fmt.Sprintf("Monitor %d", i+1), badge)
+		ui.BoxRow(fmt.Sprintf("%s%d × %d%s", ui.BrWhite, m.Width, m.Height, ui.Reset))
+		ui.BoxEnd()
+	}
+
+	// Grow or shrink monitor configs to match detected monitors
+	for len(cfg.Monitors) < len(monitors) {
+		cfg.Monitors = append(cfg.Monitors, config.MonitorConfig{
+			Layout:  "full",
+			Windows: []config.WindowConfig{{Tool: "cc"}},
+		})
+	}
+	cfg.Monitors = cfg.Monitors[:len(monitors)]
+
+	// Step 1: For each monitor, prompt window count
 	for i := range monitors {
-		monConfigs[i] = config.MonitorConfig{Windows: 1, Layout: "full"}
+		defaultCount := cfg.Monitors[i].WindowCount()
+		if defaultCount < 1 {
+			defaultCount = 1
+		}
+
+		ui.Prompt(fmt.Sprintf("Windows on Monitor %d", i+1), strconv.Itoa(defaultCount))
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+		count := defaultCount
+		if input != "" {
+			if n, err := strconv.Atoi(input); err == nil && n >= 1 {
+				count = n
+			}
+		}
+
+		// Resize window configs to match new count
+		existing := cfg.Monitors[i].Windows
+		windows := make([]config.WindowConfig, count)
+		for j := range windows {
+			if j < len(existing) {
+				windows[j] = existing[j]
+			} else {
+				windows[j] = config.WindowConfig{Tool: "cc"}
+			}
+		}
+		cfg.Monitors[i].Windows = windows
+
+		// Auto-set layout
+		switch count {
+		case 1:
+			cfg.Monitors[i].Layout = "full"
+		case 2:
+			cfg.Monitors[i].Layout = "vertical"
+		default:
+			cfg.Monitors[i].Layout = "grid"
+		}
 	}
 
-	cfg := &config.Config{
-		Version:      2,
-		ProjectsRoot: config.DefaultProjectsRoot(),
-		Monitors:     monConfigs,
+	// Step 2: For each window, prompt tool selection (cc or cx)
+	fmt.Println()
+	for i := range monitors {
+		for j := range cfg.Monitors[i].Windows {
+			defaultTool := cfg.Monitors[i].ToolFor(j)
+			ui.Inline(fmt.Sprintf("Monitor %d, Window %d", i+1, j+1), defaultTool)
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(strings.ToLower(input))
+			if input == "cc" || input == "cx" {
+				cfg.Monitors[i].Windows[j].Tool = input
+			} else if input == "" {
+				cfg.Monitors[i].Windows[j].Tool = defaultTool
+			}
+		}
 	}
 
-	config.Save(cfg, "")
+	// Validate selected tools (warn but don't block)
+	tools := map[string]bool{}
+	for _, mc := range cfg.Monitors {
+		for _, wc := range mc.Windows {
+			tools[wc.Tool] = true
+		}
+	}
+	fmt.Println()
+	for tool := range tools {
+		if err := config.ValidateCommand(tool); err != nil {
+			ui.Warn(err.Error())
+		}
+	}
 
-	return launchAll(cfg)
+	// Save config as v3
+	if err := config.Save(cfg, ""); err != nil {
+		ui.Warn(fmt.Sprintf("Could not save config: %v", err))
+	}
+
+	// Launch
+	return launchAllV3(cfg, monitors)
 }
 
-func launchAll(cfg *config.Config) error {
-	monitors, err := monitor.Detect()
-	if err != nil {
-		return fmt.Errorf("failed to detect monitors: %w", err)
-	}
-
-	// Group configs by monitor for display
+func launchAllV3(cfg *config.Config, monitors []monitor.Monitor) error {
 	type monGroup struct {
 		monIdx  int
 		configs []window.LaunchConfig
 	}
 	var groups []monGroup
-
 	var allConfigs []window.LaunchConfig
+
 	for i, mc := range cfg.Monitors {
 		if i >= len(monitors) {
 			break
 		}
-		positions := window.CalculateLayout(&monitors[i], mc.Windows, mc.Layout)
+		positions := window.CalculateLayout(&monitors[i], mc.WindowCount(), mc.Layout)
 		g := monGroup{monIdx: i}
 		for j, pos := range positions {
+			tool := mc.ToolFor(j)
 			lc := window.LaunchConfig{
-				Title:      fmt.Sprintf("%s-%d-%d", ActiveLabel, i+1, j+1),
+				Title:      fmt.Sprintf("%s-%d-%d", tool, i+1, j+1),
 				WorkingDir: cfg.ProjectsRoot,
 				X:          pos.X,
 				Y:          pos.Y,
 				Width:      pos.Width,
 				Height:     pos.Height,
+				Command:    config.CommandFor(tool),
+				Label:      config.LabelFor(tool),
 			}
 			allConfigs = append(allConfigs, lc)
 			g.configs = append(g.configs, lc)
@@ -86,14 +176,12 @@ func launchAll(cfg *config.Config) error {
 		groups = append(groups, g)
 	}
 
-	ui.Logo("")
 	ui.Sep()
 
 	// Use current terminal for first window, spawn others
-	launchResult := window.LaunchAllWithCurrent(allConfigs, ActiveCommand, ActiveLabel)
+	launchResult := window.LaunchAllWithCurrent(allConfigs)
 	results := launchResult.Results
 
-	// Adjust messaging based on how many new windows were spawned
 	newWindows := len(allConfigs) - 1
 	if newWindows > 0 {
 		ui.Head(fmt.Sprintf("Launching %d new terminals (using current for first)", newWindows))
