@@ -112,9 +112,16 @@ func runSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// --- Save ---
+	// Preserve existing profiles, or init default
+	var profiles []config.Profile
+	if existing != nil && len(existing.Profiles) > 0 {
+		profiles = existing.Profiles
+	}
+
 	cfg := &config.Config{
-		Version:      3,
+		Version:      4,
 		ProjectsRoot: projectsRoot,
+		Profiles:     profiles,
 		Monitors:     monitorConfigs,
 	}
 

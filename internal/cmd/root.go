@@ -43,6 +43,7 @@ func init() {
 	rootCmd.AddCommand(monitorsCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(allCmd)
+	rootCmd.AddCommand(profilesCmd)
 }
 
 func runCc(cmd *cobra.Command, args []string) error {
@@ -57,7 +58,7 @@ func runCc(cmd *cobra.Command, args []string) error {
 		}
 	}
 	// Run picker directly - no UI chrome, fastest path
-	return window.RunPickerInCurrent(cfg.ProjectsRoot, ActiveCommand, ActiveLabel)
+	return window.RunPickerInCurrent(cfg.ProjectsRoot, ActiveCommand, ActiveLabel, cfg.Profiles)
 }
 
 var monitorsCmd = &cobra.Command{
@@ -96,7 +97,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("\n %s%s%s %sv0.3.0%s %s%s quickstart terminal launcher%s\n\n",
+		fmt.Printf("\n %s%s%s %sv0.4.0%s %s%s quickstart terminal launcher%s\n\n",
 			ui.BrCyan+ui.Bold, ActiveLabel, ui.Reset,
 			ui.BrWhite, ui.Reset,
 			ui.DkGray, ui.Dot, ui.Reset)

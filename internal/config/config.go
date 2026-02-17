@@ -47,19 +47,47 @@ func ValidateCommand(tool string) error {
 	return nil
 }
 
+// Profile represents a named Claude Code account profile
+type Profile struct {
+	Name      string `yaml:"name"`
+	ConfigDir string `yaml:"configDir"`
+	APIKey    string `yaml:"apiKey,omitempty"`
+}
+
 // WindowConfig represents configuration for a single window within a monitor
 type WindowConfig struct {
 	Tool string `yaml:"tool"` // "cc" or "cx"
 }
 
-// Config represents the application configuration (v3)
+// Config represents the application configuration (v4)
 type Config struct {
 	Version      int             `yaml:"version"`
 	ProjectsRoot string          `yaml:"projectsRoot"`
+	Profiles     []Profile       `yaml:"profiles,omitempty"`
 	Monitors     []MonitorConfig `yaml:"monitors"`
 }
 
-// MonitorConfig represents configuration for a single monitor (v3)
+// HasProfiles returns true if the config has more than one profile
+func (c *Config) HasProfiles() bool {
+	return len(c.Profiles) > 1
+}
+
+// ExpandPath expands a leading ~ to the user's home directory
+func ExpandPath(p string) string {
+	if len(p) == 0 {
+		return p
+	}
+	if p[0] == '~' {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return p
+		}
+		return filepath.Join(home, p[1:])
+	}
+	return p
+}
+
+// MonitorConfig represents configuration for a single monitor
 type MonitorConfig struct {
 	Layout  string         `yaml:"layout"`
 	Windows []WindowConfig `yaml:"windows"`
@@ -102,7 +130,19 @@ func DefaultProjectsRoot() string {
 	return filepath.Join(homeDir, ".1dev")
 }
 
-// Load reads the configuration from a file, auto-migrating v2 to v3 in memory
+// upgradeToV4 adds a default profile if none exist and sets version to 4
+func upgradeToV4(cfg *Config) *Config {
+	if len(cfg.Profiles) == 0 {
+		home, _ := os.UserHomeDir()
+		cfg.Profiles = []Profile{
+			{Name: "Default", ConfigDir: filepath.Join(home, ".claude")},
+		}
+	}
+	cfg.Version = 4
+	return cfg
+}
+
+// Load reads the configuration from a file, auto-migrating v2→v3→v4 in memory
 func Load(path string) (*Config, error) {
 	if path == "" {
 		path = DefaultConfigPath()
@@ -121,17 +161,26 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	var cfg *Config
 	if peek.Version < 3 {
-		// v2 or unversioned — migrate
-		return migrateV2(data)
+		// v2 or unversioned — migrate to v3
+		cfg, err = migrateV2(data)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		cfg = &Config{}
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse config: %w", err)
+		}
 	}
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+	// Upgrade to v4 if needed
+	if cfg.Version < 4 {
+		cfg = upgradeToV4(cfg)
 	}
 
-	return &cfg, nil
+	return cfg, nil
 }
 
 // migrateV2 converts a v2 config (with Windows as int) to v3 (with []WindowConfig)
@@ -177,7 +226,7 @@ func Save(cfg *Config, path string) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	cfg.Version = 3
+	cfg.Version = 4
 
 	data, err := yaml.Marshal(cfg)
 	if err != nil {

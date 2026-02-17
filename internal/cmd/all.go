@@ -30,7 +30,7 @@ func runAll(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		cfg = &config.Config{
-			Version:      3,
+			Version:      4,
 			ProjectsRoot: config.DefaultProjectsRoot(),
 		}
 	}
@@ -135,7 +135,7 @@ func runAll(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Save config as v3
+	// Save config
 	if err := config.Save(cfg, ""); err != nil {
 		ui.Warn(fmt.Sprintf("Could not save config: %v", err))
 	}
@@ -169,6 +169,7 @@ func launchAllV3(cfg *config.Config, monitors []monitor.Monitor) error {
 				Height:     pos.Height,
 				Command:    config.CommandFor(tool),
 				Label:      config.LabelFor(tool),
+				Profiles:   cfg.Profiles,
 			}
 			allConfigs = append(allConfigs, lc)
 			g.configs = append(g.configs, lc)

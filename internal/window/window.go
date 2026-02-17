@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 	"unicode/utf16"
 	"unsafe"
 
+	"github.com/bcmister/cc/internal/config"
 	"github.com/bcmister/cc/internal/monitor"
 )
 
@@ -47,8 +49,9 @@ type LaunchConfig struct {
 	Y          int
 	Width      int
 	Height     int
-	Command    string // e.g. "claude --dangerously-skip-permissions"
-	Label      string // e.g. "cc" or "cx"
+	Command    string           // e.g. "claude --dangerously-skip-permissions"
+	Label      string           // e.g. "cc" or "cx"
+	Profiles   []config.Profile // account profiles for picker
 }
 
 // LaunchResult holds the outcome of a terminal launch
@@ -158,7 +161,7 @@ func LaunchAll(configs []LaunchConfig) []LaunchResult {
 
 	scripts := make([]string, len(configs))
 	for i, cfg := range configs {
-		scripts[i] = buildPickerScript(cfg.WorkingDir, cfg.Command, cfg.Label)
+		scripts[i] = buildPickerScript(cfg.WorkingDir, cfg.Command, cfg.Label, cfg.Profiles)
 		results[i].Title = cfg.Title
 	}
 
@@ -202,7 +205,27 @@ func LaunchAll(configs []LaunchConfig) []LaunchResult {
 	return results
 }
 
-func buildPickerScript(workingDir, command, label string) string {
+// buildProfileArrays generates PowerShell array literals for profile names, dirs, and keys
+func buildProfileArrays(profiles []config.Profile) (names, dirs, keys string) {
+	if len(profiles) == 0 {
+		return "@()", "@()", "@()"
+	}
+	nameList := make([]string, len(profiles))
+	dirList := make([]string, len(profiles))
+	keyList := make([]string, len(profiles))
+	for i, p := range profiles {
+		nameList[i] = "'" + strings.ReplaceAll(p.Name, "'", "''") + "'"
+		expanded := config.ExpandPath(p.ConfigDir)
+		dirList[i] = "'" + strings.ReplaceAll(expanded, "'", "''") + "'"
+		keyList[i] = "'" + strings.ReplaceAll(p.APIKey, "'", "''") + "'"
+	}
+	return "@(" + strings.Join(nameList, ",") + ")",
+		"@(" + strings.Join(dirList, ",") + ")",
+		"@(" + strings.Join(keyList, ",") + ")"
+}
+
+func buildPickerScript(workingDir, command, label string, profiles []config.Profile) string {
+	profileNames, profileDirs, profileKeys := buildProfileArrays(profiles)
 	return `
 $R   = [char]27 + '[0m'
 $DIM = [char]27 + '[90m'
@@ -214,6 +237,10 @@ $RED = [char]27 + '[91m'
 $INV = [char]27 + '[7m'
 $HID = [char]27 + '[?25l'
 $SHW = [char]27 + '[?25h'
+
+$profileNames = ` + profileNames + `
+$profileDirs  = ` + profileDirs + `
+$profileKeys  = ` + profileKeys + `
 
 $d = '` + workingDir + `'
 $all = @(Get-ChildItem $d -Directory | Select-Object -ExpandProperty Name)
@@ -334,6 +361,48 @@ while ($true) {
             Write-Host ""
             Write-Host "  ${GRN}>${R} ${WHT}$chosen${R}"
             Write-Host ""
+
+            # Account picker phase
+            if ($profileNames.Count -gt 1) {
+                Write-Host "  ${CYN}` + label + `${R} ${DIM}· select account${R}"
+                Write-Host "  ${DIM}─────────────────────────────────${R}"
+                for ($pi = 0; $pi -lt $profileNames.Count; $pi++) {
+                    $num = $pi + 1
+                    Write-Host "  ${WHT}${num}${R}  ${DIM}$($profileNames[$pi])${R}"
+                }
+                Write-Host ""
+                Write-Host "  ${CYN}>${R} " -NoNewline
+
+                $picked = $false
+                while (-not $picked) {
+                    try {
+                        $aKey = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+                    } catch { continue }
+                    $aVk = $aKey.VirtualKeyCode
+                    if ($aVk -eq 27) {
+                        Write-Host "${SHW}" -NoNewline
+                        Clear-Host
+                        exit
+                    }
+                    $aNum = $aVk - 48
+                    if ($aNum -ge 1 -and $aNum -le $profileNames.Count) {
+                        $idx = $aNum - 1
+                        $env:CLAUDE_CONFIG_DIR = $profileDirs[$idx]
+                        if ($profileKeys[$idx] -ne '') {
+                            $env:ANTHROPIC_API_KEY = $profileKeys[$idx]
+                        }
+                        Write-Host "$($profileNames[$idx])"
+                        Write-Host ""
+                        $picked = $true
+                    }
+                }
+            } elseif ($profileNames.Count -eq 1) {
+                $env:CLAUDE_CONFIG_DIR = $profileDirs[0]
+                if ($profileKeys[0] -ne '') {
+                    $env:ANTHROPIC_API_KEY = $profileKeys[0]
+                }
+            }
+
             Set-Location (Join-Path $d $chosen)
             ` + command + `
             break
@@ -389,8 +458,8 @@ while ($true) {
 }
 
 // LaunchTab opens a new tab in the current Windows Terminal window
-func LaunchTab(workingDir, command, label string) error {
-	script := buildPickerScript(workingDir, command, label)
+func LaunchTab(workingDir, command, label string, profiles []config.Profile) error {
+	script := buildPickerScript(workingDir, command, label, profiles)
 	encoded := encodePS(script)
 	args := []string{
 		"-w", "0",
@@ -478,8 +547,8 @@ func GetCurrentConsoleWindow() uintptr {
 
 // RunPickerInCurrent runs the picker script in the current terminal (blocking).
 // Bug fix: removed -NoExit so the process exits cleanly after picker selection.
-func RunPickerInCurrent(workingDir, command, label string) error {
-	script := buildPickerScript(workingDir, command, label)
+func RunPickerInCurrent(workingDir, command, label string, profiles []config.Profile) error {
+	script := buildPickerScript(workingDir, command, label, profiles)
 	encoded := encodePS(script)
 
 	cmd := exec.Command("powershell", "-EncodedCommand", encoded)
@@ -518,7 +587,7 @@ func LaunchAllWithCurrent(configs []LaunchConfig) LaunchAllWithCurrentResult {
 	if len(configs) > 1 {
 		for i := 1; i < len(configs); i++ {
 			cfg := configs[i]
-			script := buildPickerScript(cfg.WorkingDir, cfg.Command, cfg.Label)
+			script := buildPickerScript(cfg.WorkingDir, cfg.Command, cfg.Label, cfg.Profiles)
 			encoded := encodePS(script)
 			args := []string{
 				"--title", cfg.Title,
@@ -572,7 +641,7 @@ func LaunchAllWithCurrent(configs []LaunchConfig) LaunchAllWithCurrentResult {
 
 	// Return results and a picker function — uses first config's command/label
 	picker := func() error {
-		return RunPickerInCurrent(configs[0].WorkingDir, configs[0].Command, configs[0].Label)
+		return RunPickerInCurrent(configs[0].WorkingDir, configs[0].Command, configs[0].Label, configs[0].Profiles)
 	}
 
 	return LaunchAllWithCurrentResult{
